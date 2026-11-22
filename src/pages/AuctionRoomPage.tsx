@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Play, Pause, RotateCcw, Volume2, Users, Bot, Zap, Clock, ShieldCheck, Award, Share2 } from 'lucide-react';
+import { Play, Pause, RotateCcw, Volume2, Users, Bot, Zap, Clock, ShieldCheck, Award, Share2, BookOpen, Star, Sparkles } from 'lucide-react';
 import { MovieLotCard } from '../components/MovieLotCard';
 import { BiddingPaddle } from '../components/BiddingPaddle';
 import { AuctionHammer } from '../components/AuctionHammer';
@@ -8,6 +8,7 @@ import { LiveBidFeed } from '../components/LiveBidFeed';
 import { StudioSlateRoster } from '../components/StudioSlateRoster';
 import { ReactionOverlay } from '../components/ReactionOverlay';
 import { INITIAL_MOVIES } from '../data/mockMovies';
+import { IMDB_LEGENDS_MOVIES } from '../data/imdbMovies';
 import { Movie } from '../types/movie';
 import { AuctionState, StudioPlayer, BidRecord, AuctionPhase } from '../types/auction';
 import { clusterManager } from '../services/biddingEngine/clusterManager';
@@ -68,50 +69,78 @@ const INITIAL_STUDIOS: StudioPlayer[] = [
 
 interface AuctionRoomPageProps {
   onOpenMultiplayerModal?: () => void;
+  onOpenRulesModal?: () => void;
   currentUserStudio: StudioPlayer;
 }
 
 export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
   onOpenMultiplayerModal,
+  onOpenRulesModal,
   currentUserStudio,
 }) => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  // Load custom movies from D1 cache or fallback to initial
-  const [moviesList] = useState<Movie[]>(() => {
-    try {
-      const raw = localStorage.getItem('cinema_d1_movies_catalog');
-      return raw ? JSON.parse(raw) : INITIAL_MOVIES;
-    } catch {
-      return INITIAL_MOVIES;
-    }
-  });
+  // Catalog Mode: 'imdb' (IMDb Top Legends) vs 'all' (Mixed) vs 'upcoming'
+  const [catalogFilter, setCatalogFilter] = useState<'imdb' | 'all'>('imdb');
 
-  const [auctionState, setAuctionState] = useState<AuctionState>(() => ({
-    roomId: 'room-alpha-blockbuster-2026',
-    roomName: '2026 Cannes & Hollywood Slate Auction',
-    phase: 'bidding',
-    currentLotIndex: 0,
-    currentMovie: moviesList[0] || null,
-    totalLots: Math.min(8, moviesList.length),
-    currentBid: moviesList[0]?.startingBid || 15,
-    highestBidder: null,
-    timerSeconds: 15,
-    timerTotal: 15,
-    hammerState: 'none',
-    bidHistory: [],
-    allLots: moviesList.slice(0, 8),
-    studios: INITIAL_STUDIOS.map((s) => (s.id === 'studio-user' ? { ...s, ...currentUserStudio } : s)),
-    clusterNodes: clusterManager.getNodes(),
-    activeClusterLeader: clusterManager.getLeader().id,
-    lastUpdated: Date.now(),
-    sequenceNumber: 1,
-  }));
+  const getFilteredMovies = (mode: 'imdb' | 'all'): Movie[] => {
+    if (mode === 'imdb') {
+      return IMDB_LEGENDS_MOVIES;
+    }
+    return INITIAL_MOVIES;
+  };
+
+  const [activeLots, setActiveLots] = useState<Movie[]>(() => getFilteredMovies('imdb'));
+
+  const [auctionState, setAuctionState] = useState<AuctionState>(() => {
+    const list = getFilteredMovies('imdb');
+    return {
+      roomId: 'room-imdb-legends-2026',
+      roomName: 'IMDb Top Rated Legends League',
+      phase: 'bidding',
+      currentLotIndex: 0,
+      currentMovie: list[0] || null,
+      totalLots: Math.min(8, list.length),
+      currentBid: list[0]?.startingBid || 15,
+      highestBidder: null,
+      timerSeconds: 15,
+      timerTotal: 15,
+      hammerState: 'none',
+      bidHistory: [],
+      allLots: list.slice(0, 8),
+      studios: INITIAL_STUDIOS.map((s) => (s.id === 'studio-user' ? { ...s, ...currentUserStudio } : s)),
+      clusterNodes: clusterManager.getNodes(),
+      activeClusterLeader: clusterManager.getLeader().id,
+      lastUpdated: Date.now(),
+      sequenceNumber: 1,
+    };
+  });
 
   const [aiBotsActive, setAiBotsActive] = useState<boolean>(true);
   const timerRef = useRef<any>(null);
   const botIntervalRef = useRef<any>(null);
+
+  // Switch catalog mode (IMDb Top Legends vs Full Mixed)
+  const handleSwitchCatalog = (mode: 'imdb' | 'all') => {
+    setCatalogFilter(mode);
+    const newMovies = getFilteredMovies(mode);
+    setActiveLots(newMovies);
+
+    setAuctionState((prev) => ({
+      ...prev,
+      roomName: mode === 'imdb' ? 'IMDb Top Rated Legends League' : 'Hollywood Mixed Tentpole Draft',
+      currentLotIndex: 0,
+      currentMovie: newMovies[0],
+      totalLots: Math.min(8, newMovies.length),
+      currentBid: newMovies[0]?.startingBid || 15,
+      highestBidder: null,
+      timerSeconds: 15,
+      hammerState: 'none',
+      bidHistory: [],
+      allLots: newMovies.slice(0, 8),
+    }));
+  };
 
   // Auto prompt join if ?room= query param is found
   useEffect(() => {
@@ -126,7 +155,6 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
     const unsubPeers = multiplayerService.onPeersChange((peers) => {
       if (peers.length > 0) {
         setAuctionState((prev) => {
-          // Merge connected human peers with existing roster
           const existingIds = new Set(peers.map((p) => p.id));
           const bots = prev.studios.filter((s) => !s.isHuman && !existingIds.has(s.id));
           return {
@@ -141,14 +169,12 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
 
   // Multiplayer PeerJS & BroadcastChannel message listeners
   useEffect(() => {
-    const unsubMultiplayer = multiplayerService.onMessage((msg, senderId) => {
+    const unsubMultiplayer = multiplayerService.onMessage((msg) => {
       if (msg.type === 'BID_SUBMIT') {
-        // Host receives bid from connected friend
         if (multiplayerService.getRole() === 'host') {
           placeBidInternal(msg.studioId, msg.amount);
         }
       } else if (msg.type === 'BID_BROADCAST') {
-        // Client receives verified bid from host
         soundEffects.playGavelStrike();
         soundEffects.playBidChime();
         setAuctionState((prev) => ({
@@ -160,7 +186,6 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
           hammerState: 'none',
         }));
       } else if (msg.type === 'LOT_ADVANCE') {
-        // Client advances lot in sync with host
         setAuctionState((prev) => ({
           ...prev,
           currentLotIndex: msg.lotIndex,
@@ -370,7 +395,6 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
 
     setAuctionState((prev) => ({ ...prev, ...nextState }));
 
-    // Broadcast to connected peers via WebRTC
     multiplayerService.broadcast({
       type: 'LOT_ADVANCE',
       lotIndex: nextIndex,
@@ -393,6 +417,7 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
         studioId: studio.id,
         studioName: studio.name,
         studioLogo: studio.logo,
+        studioCustomAvatar: studio.customAvatarUrl,
         amount,
         timestamp: Date.now(),
       });
@@ -417,7 +442,6 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
         return updated;
       });
 
-      // Broadcast to connected friends via WebRTC P2P
       multiplayerService.broadcast({
         type: 'BID_BROADCAST',
         bidRecord,
@@ -438,7 +462,6 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
 
   const handleUserBid = async (amount: number) => {
     if (multiplayerService.getRole() === 'client') {
-      // Client sends bid submit request to host
       multiplayerService.sendToHost({
         type: 'BID_SUBMIT',
         studioId: currentUserStudio.id,
@@ -474,24 +497,61 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
           </div>
         </div>
 
-        {/* Live Timer, Multiplayer Invite & Bot Toggles */}
-        <div className="flex items-center gap-3">
-          {/* Quick Invite Button */}
+        {/* Catalog Mode Selector & Controls */}
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+          {/* IMDb Legends vs Mixed Toggle */}
+          <div className="flex items-center bg-[#141824] p-1 rounded-xl border border-white/10 text-xs font-semibold">
+            <button
+              onClick={() => handleSwitchCatalog('imdb')}
+              className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                catalogFilter === 'imdb'
+                  ? 'bg-amber-500 text-black font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Star className="w-3.5 h-3.5" />
+              IMDb Legends
+            </button>
+            <button
+              onClick={() => handleSwitchCatalog('all')}
+              className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                catalogFilter === 'all'
+                  ? 'bg-amber-500 text-black font-bold shadow-sm'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Full Mix
+            </button>
+          </div>
+
+          {/* Rules Button */}
+          {onOpenRulesModal && (
+            <button
+              onClick={onOpenRulesModal}
+              className="px-2.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+              <span>Rules</span>
+            </button>
+          )}
+
+          {/* Invite Friends Button */}
           {onOpenMultiplayerModal && (
             <button
               onClick={onOpenMultiplayerModal}
-              className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              className="px-3 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Users className="w-3.5 h-3.5" />
               <span>Invite Friends</span>
             </button>
           )}
 
-          {/* Live Timer Clock Display */}
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-black/40 border border-white/10">
-            <Clock className={`w-4 h-4 ${auctionState.timerSeconds <= 5 ? 'text-rose-400 animate-spin' : 'text-amber-400'}`} />
+          {/* Clock Display */}
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-black/40 border border-white/10">
+            <Clock className={`w-3.5 h-3.5 ${auctionState.timerSeconds <= 5 ? 'text-rose-400 animate-spin' : 'text-amber-400'}`} />
             <span
-              className={`font-mono text-lg font-black ${
+              className={`font-mono text-base font-black ${
                 auctionState.timerSeconds <= 5 ? 'text-rose-400 animate-pulse' : 'text-white'
               }`}
             >
@@ -502,14 +562,14 @@ export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
           {/* AI Bot Toggle */}
           <button
             onClick={() => setAiBotsActive(!aiBotsActive)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
               aiBotsActive
                 ? 'bg-purple-950/40 border-purple-500/30 text-purple-300'
                 : 'bg-white/5 border-white/10 text-slate-500'
             }`}
             title="Toggle autonomous Hollywood bot studios"
           >
-            <Bot className="w-4 h-4" />
+            <Bot className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Bots:</span>
             <span>{aiBotsActive ? 'ON' : 'OFF'}</span>
           </button>

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Users, Share2, Copy, Check, Radio, Play, Sparkles, ShieldCheck, ArrowRight, UserPlus } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Users, Share2, Copy, Check, Radio, Play, Sparkles, Upload, ArrowRight, UserPlus } from 'lucide-react';
 import { multiplayerService } from '../services/biddingEngine/multiplayerService';
 import { StudioPlayer } from '../types/auction';
 import { shareService } from '../services/export/shareService';
@@ -24,10 +24,13 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   onStartAuction,
   initialRoomCode = '',
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
   const [roomCodeInput, setRoomCodeInput] = useState(initialRoomCode);
   const [studioName, setStudioName] = useState(currentStudio.name);
   const [studioLogo, setStudioLogo] = useState(currentStudio.logo);
+  const [customAvatarUrl, setCustomAvatarUrl] = useState(currentStudio.customAvatarUrl || '');
   const [studioColor, setStudioColor] = useState(currentStudio.color);
 
   const [activeRoomCode, setActiveRoomCode] = useState<string>('');
@@ -55,6 +58,23 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
   const currentRole = multiplayerService.getRole();
   const currentRoom = multiplayerService.getRoomCode();
 
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        setStatusMessage('Image must be under 2MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setCustomAvatarUrl(base64);
+        setStatusMessage('Custom avatar image uploaded!');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
   const handleCreateRoom = async () => {
     setIsConnecting(true);
     setStatusMessage(null);
@@ -63,6 +83,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         ...currentStudio,
         name: studioName,
         logo: studioLogo,
+        customAvatarUrl,
         color: studioColor,
       };
       onUpdateStudio(myStudio);
@@ -92,6 +113,7 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
         ...currentStudio,
         name: studioName,
         logo: studioLogo,
+        customAvatarUrl,
         color: studioColor,
       };
       onUpdateStudio(myStudio);
@@ -189,8 +211,50 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           {/* Studio Profile Customization */}
           <div className="p-4 rounded-2xl bg-[#141824] border border-white/5 space-y-3">
             <span className="text-[11px] uppercase font-bold tracking-wider text-slate-400 block">
-              Customize Your Studio Identity
+              Customize Your Studio Identity & Custom Avatar
             </span>
+
+            <div className="flex items-center gap-3">
+              {/* Avatar Preview */}
+              <div
+                className="w-14 h-14 rounded-2xl overflow-hidden border border-white/20 flex items-center justify-center shrink-0 shadow-md"
+                style={{ backgroundColor: studioColor }}
+              >
+                {customAvatarUrl ? (
+                  <img src={customAvatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-2xl">{studioLogo}</span>
+                )}
+              </div>
+
+              {/* Upload image button */}
+              <div className="flex-1">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  Upload Custom Studio Avatar
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                {customAvatarUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setCustomAvatarUrl('')}
+                    className="text-[11px] text-rose-400 hover:underline block mt-1 cursor-pointer"
+                  >
+                    Reset to Emoji
+                  </button>
+                )}
+              </div>
+            </div>
 
             <div>
               <label className="text-xs text-slate-300 block mb-1">Studio Name</label>
@@ -204,15 +268,18 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
             </div>
 
             <div>
-              <label className="text-xs text-slate-300 block mb-1.5">Avatar Emoji</label>
+              <label className="text-xs text-slate-300 block mb-1.5">Or Select Emoji Icon</label>
               <div className="flex items-center gap-1.5 flex-wrap">
                 {AVATAR_OPTIONS.map((emoji) => (
                   <button
                     key={emoji}
                     type="button"
-                    onClick={() => setStudioLogo(emoji)}
-                    className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg transition-transform cursor-pointer ${
-                      studioLogo === emoji
+                    onClick={() => {
+                      setStudioLogo(emoji);
+                      setCustomAvatarUrl('');
+                    }}
+                    className={`w-8 h-8 rounded-xl flex items-center justify-center text-base transition-transform cursor-pointer ${
+                      studioLogo === emoji && !customAvatarUrl
                         ? 'bg-amber-500/20 border-2 border-amber-400 scale-110'
                         : 'bg-white/5 border border-white/10 hover:bg-white/10'
                     }`}
@@ -244,7 +311,6 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
           {/* If already connected or hosting */}
           {(currentRole !== 'solo' || activeRoomCode) ? (
             <div className="space-y-4">
-              {/* Room Code & Share Card */}
               <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-500/10 via-[#141824] to-amber-500/10 border border-amber-500/30 text-center space-y-2">
                 <span className="text-[11px] uppercase font-bold tracking-widest text-amber-400 block">
                   Active Room Code
@@ -256,7 +322,6 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                   {currentRole === 'host' ? 'You are the Auctioneer Host' : 'Connected as Participant Studio'}
                 </p>
 
-                {/* Invite Link Buttons */}
                 <div className="pt-2 flex items-center justify-center gap-2">
                   <button
                     type="button"
@@ -277,7 +342,6 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 </div>
               </div>
 
-              {/* Connected Lobby Players */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-400">
                   <span className="font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
@@ -294,7 +358,16 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                       className="p-3 rounded-xl bg-[#141824] border border-white/5 flex items-center justify-between"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="text-xl">{peer.logo}</span>
+                        <div
+                          className="w-8 h-8 rounded-lg overflow-hidden flex items-center justify-center text-lg"
+                          style={{ backgroundColor: peer.color }}
+                        >
+                          {peer.customAvatarUrl ? (
+                            <img src={peer.customAvatarUrl} alt={peer.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{peer.logo}</span>
+                          )}
+                        </div>
                         <div>
                           <span className="text-xs font-bold text-white block">{peer.name}</span>
                           <span className="text-[10px] text-slate-400 font-mono">${peer.budget}M Budget</span>
@@ -308,7 +381,6 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
                 </div>
               </div>
 
-              {/* Host Start Button */}
               {currentRole === 'host' && (
                 <button
                   type="button"
@@ -380,4 +452,3 @@ export const MultiplayerModal: React.FC<MultiplayerModalProps> = ({
     </div>
   );
 };
-

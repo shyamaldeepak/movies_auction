@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Star, Award, DollarSign, Calendar, Film, User, Tag, Clock } from 'lucide-react';
+import { Star, Award, DollarSign, Calendar, Film, User, Tag, Clock, Trophy } from 'lucide-react';
 import { Movie } from '../types/movie';
 import { AuctionPhase } from '../types/auction';
 
@@ -38,7 +38,7 @@ export const MovieLotCard: React.FC<MovieLotCardProps> = ({
         <div className="absolute inset-0 bg-gradient-to-t from-[#10141e] via-[#10141e]/60 to-transparent" />
 
         {/* Top Badges */}
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between gap-2">
+        <div className="absolute top-4 left-4 right-4 flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
             <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-white/20 text-xs font-mono font-bold text-amber-300">
               LOT {lotNumber} OF {totalLots}
@@ -51,10 +51,22 @@ export const MovieLotCard: React.FC<MovieLotCardProps> = ({
             </span>
           </div>
 
-          {/* Rotten Tomatoes / Buzz Score */}
-          <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-amber-500/30 text-amber-300 text-xs font-bold">
-            <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-            <span>{movie.rottenTomatoesScore}% RT Buzz</span>
+          {/* Golden IMDb Rating Badge & Rotten Tomatoes Score */}
+          <div className="flex items-center gap-2">
+            {movie.imdbRank && (
+              <span className="px-2.5 py-1 rounded-full bg-amber-500 text-black text-xs font-black tracking-wide shadow-md flex items-center gap-1">
+                <Trophy className="w-3.5 h-3.5" /> IMDb Top #{movie.imdbRank}
+              </span>
+            )}
+
+            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/75 backdrop-blur-md border border-yellow-500/40 text-yellow-300 text-xs font-bold font-mono">
+              <span className="text-yellow-400 font-black">★</span>
+              <span>{movie.imdbRating} / 10 IMDb</span>
+            </div>
+
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/60 backdrop-blur-md border border-rose-500/30 text-rose-300 text-xs font-bold">
+              <span>{movie.rottenTomatoesScore}% RT</span>
+            </div>
           </div>
         </div>
 
@@ -91,7 +103,6 @@ export const MovieLotCard: React.FC<MovieLotCardProps> = ({
 
           {/* Details & Specs */}
           <div className="flex-1 space-y-3">
-            {/* Title & Director */}
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-1">
                 {movie.genre.map((g) => (
@@ -117,12 +128,10 @@ export const MovieLotCard: React.FC<MovieLotCardProps> = ({
               </p>
             </div>
 
-            {/* Synopsis */}
             <p className="text-xs text-slate-300 leading-relaxed line-clamp-3">
               {movie.synopsis}
             </p>
 
-            {/* Cast Pills */}
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-[11px] text-slate-400 font-medium">Lead Cast:</span>
               {movie.leadCast.map((actor) => (
@@ -179,4 +188,3 @@ export const MovieLotCard: React.FC<MovieLotCardProps> = ({
     </div>
   );
 };
-

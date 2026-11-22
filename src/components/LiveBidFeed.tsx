@@ -48,7 +48,13 @@ export const LiveBidFeed: React.FC<LiveBidFeedProps> = ({ bids }) => {
                   }`}
                 >
                   <div className="flex items-center gap-2.5">
-                    <span className="text-lg">{bid.studioLogo}</span>
+                    <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center shrink-0 border border-white/10 text-base bg-black/40">
+                      {bid.studioCustomAvatar ? (
+                        <img src={bid.studioCustomAvatar} alt={bid.studioName} className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{bid.studioLogo}</span>
+                      )}
+                    </div>
                     <div>
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs font-bold text-white">
@@ -82,4 +88,3 @@ export const LiveBidFeed: React.FC<LiveBidFeedProps> = ({ bids }) => {
     </div>
   );
 };
-

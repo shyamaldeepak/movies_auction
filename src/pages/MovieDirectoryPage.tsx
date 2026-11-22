@@ -1,24 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { Database, Search, Filter, Terminal, Plus, Sparkles, RefreshCw, Star, Film, Check } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Database, Search, Filter, Terminal, Plus, Sparkles, RefreshCw, Star, Film, Check, Trophy, Upload } from 'lucide-react';
 import { d1Storage } from '../services/storage/d1Client';
 import { Movie } from '../types/movie';
 import { INITIAL_MOVIES } from '../data/mockMovies';
 
 export const MovieDirectoryPage: React.FC = () => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [movies, setMovies] = useState<Movie[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGenre, setSelectedGenre] = useState<string>('All');
-  const [sqlQuery, setSqlQuery] = useState<string>('SELECT * FROM movies ORDER BY buzz_score DESC');
+  const [sqlQuery, setSqlQuery] = useState<string>('SELECT * FROM movies ORDER BY imdb_rating DESC');
   const [sqlResponseMeta, setSqlResponseMeta] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
 
-  // New Movie Form
+  // New Movie Form with custom image upload
   const [newTitle, setNewTitle] = useState('');
   const [newDirector, setNewDirector] = useState('');
   const [newGenre, setNewGenre] = useState('Sci-Fi');
   const [newBudget, setNewBudget] = useState(120);
   const [newBoxOffice, setNewBoxOffice] = useState(500);
+  const [newImdbRating, setNewImdbRating] = useState(8.8);
+  const [customPosterUrl, setCustomPosterUrl] = useState('');
+  const [uploadPosterMsg, setUploadPosterMsg] = useState('');
 
   const fetchMovies = async (queryText?: string) => {
     setIsLoading(true);
@@ -44,13 +49,30 @@ export const MovieDirectoryPage: React.FC = () => {
   const handleFilterGenre = (genre: string) => {
     setSelectedGenre(genre);
     if (genre === 'All') {
-      const q = 'SELECT * FROM movies ORDER BY buzz_score DESC';
+      const q = 'SELECT * FROM movies ORDER BY imdb_rating DESC';
       setSqlQuery(q);
       fetchMovies(q);
     } else {
       const q = `SELECT * FROM movies WHERE genre = '${genre}'`;
       setSqlQuery(q);
       fetchMovies(q);
+    }
+  };
+
+  const handleCustomPosterUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        setUploadPosterMsg('Image must be under 2MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const base64 = event.target?.result as string;
+        setCustomPosterUrl(base64);
+        setUploadPosterMsg('Custom poster loaded!');
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -66,7 +88,7 @@ export const MovieDirectoryPage: React.FC = () => {
       leadCast: ['A-List Ensemble'],
       genre: [newGenre as any],
       synopsis: 'A groundbreaking new theatrical release registered via Cloudflare D1 table insert.',
-      posterUrl: 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=900&auto=format&fit=crop',
+      posterUrl: customPosterUrl || 'https://images.unsplash.com/photo-1489599849927-2ee91cede3ba?q=80&w=900&auto=format&fit=crop',
       backdropUrl: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?q=80&w=1600&auto=format&fit=crop',
       productionBudget: newBudget,
       projectedBoxOffice: newBoxOffice,
@@ -74,6 +96,7 @@ export const MovieDirectoryPage: React.FC = () => {
       buzzScore: 92,
       awardsPotential: 'High',
       rottenTomatoesScore: 90,
+      imdbRating: newImdbRating,
       releaseQuarter: 'Q4',
       rating: 'PG-13',
       tags: ['Custom D1 Entity', 'New Lot'],
@@ -83,12 +106,13 @@ export const MovieDirectoryPage: React.FC = () => {
     setShowAddModal(false);
     setNewTitle('');
     setNewDirector('');
+    setCustomPosterUrl('');
     fetchMovies();
   };
 
   const handleResetCatalog = () => {
     d1Storage.resetToDefault();
-    fetchMovies('SELECT * FROM movies ORDER BY buzz_score DESC');
+    fetchMovies('SELECT * FROM movies ORDER BY imdb_rating DESC');
   };
 
   const filtered = movies.filter((m) =>
@@ -102,17 +126,17 @@ export const MovieDirectoryPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/10">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <span className="px-2.5 py-0.5 rounded-full bg-sky-500/15 border border-sky-500/30 text-sky-400 text-xs font-mono font-bold flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5" />
-              Cloudflare D1 (SQLite) Storage
+            <span className="px-2.5 py-0.5 rounded-full bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 text-xs font-mono font-bold flex items-center gap-1.5">
+              <Star className="w-3.5 h-3.5" />
+              IMDb Top Rated Cinema Directory
             </span>
-            <span className="text-xs text-slate-400 font-mono">Edge Relational DB</span>
+            <span className="text-xs text-slate-400 font-mono">Cloudflare D1 (SQLite)</span>
           </div>
           <h1 className="font-cinzel text-2xl sm:text-3xl font-black text-white">
             Theatrical Movie Catalog
           </h1>
           <p className="text-xs text-slate-400">
-            Query and inspect cinema database properties backed by Cloudflare D1 & LocalStorage cache
+            Query iconic IMDb Top 250 legends and 2026 upcoming slates backed by Cloudflare D1
           </p>
         </div>
 
@@ -129,7 +153,7 @@ export const MovieDirectoryPage: React.FC = () => {
             className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-all shadow-lg shadow-amber-500/10 flex items-center gap-1.5 cursor-pointer"
           >
             <Plus className="w-4 h-4" />
-            Register Movie Lot
+            Register Custom Lot
           </button>
         </div>
       </div>
@@ -154,7 +178,7 @@ export const MovieDirectoryPage: React.FC = () => {
               type="text"
               value={sqlQuery}
               onChange={(e) => setSqlQuery(e.target.value)}
-              placeholder="SELECT * FROM movies WHERE genre = 'Sci-Fi'..."
+              placeholder="SELECT * FROM movies WHERE genre = 'Sci-Fi' ORDER BY imdb_rating DESC..."
               className="w-full px-3.5 py-2 rounded-xl bg-[#0b0e14] border border-white/10 text-sky-300 placeholder-slate-600 focus:outline-none focus:border-sky-400 text-xs font-mono"
             />
           </div>
@@ -169,9 +193,8 @@ export const MovieDirectoryPage: React.FC = () => {
 
       {/* Search and Filters */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Genre Pill Filters */}
         <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto pb-2 sm:pb-0">
-          {['All', 'Sci-Fi', 'Action', 'Drama', 'Horror', 'Prestige', 'Animation'].map((g) => (
+          {['All', 'Drama', 'Crime', 'Sci-Fi', 'Action', 'Thriller', 'Prestige', 'Fantasy', 'Comedy'].map((g) => (
             <button
               key={g}
               onClick={() => handleFilterGenre(g)}
@@ -186,12 +209,11 @@ export const MovieDirectoryPage: React.FC = () => {
           ))}
         </div>
 
-        {/* Search Input */}
         <div className="relative w-full sm:w-72">
           <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-3" />
           <input
             type="text"
-            placeholder="Search title, director..."
+            placeholder="Search title, director, actors..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-4 py-2 rounded-xl bg-[#141824] border border-white/10 text-white placeholder-slate-500 focus:outline-none focus:border-amber-400 text-xs"
@@ -219,14 +241,17 @@ export const MovieDirectoryPage: React.FC = () => {
                 <span className="px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md text-[10px] font-mono font-bold text-amber-300">
                   ${movie.startingBid}M START
                 </span>
-                <span className="px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md text-[10px] font-semibold text-slate-300">
-                  {movie.rating}
-                </span>
+                {movie.imdbRank && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500 text-black text-[10px] font-black">
+                    IMDb #{movie.imdbRank}
+                  </span>
+                )}
               </div>
 
-              <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md text-[10px] font-bold text-yellow-400">
-                <Star className="w-3 h-3 fill-yellow-400" />
-                <span>{movie.rottenTomatoesScore}%</span>
+              {/* Golden IMDb Rating Badge */}
+              <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-black/75 backdrop-blur-md text-[10px] font-bold text-yellow-400 font-mono border border-yellow-500/30">
+                <span>★</span>
+                <span>{movie.imdbRating || 8.5} IMDb</span>
               </div>
             </div>
 
@@ -244,7 +269,7 @@ export const MovieDirectoryPage: React.FC = () => {
                   ))}
                 </div>
                 <h3 className="font-bold text-sm text-white line-clamp-1 group-hover:text-amber-300 transition-colors">
-                  {movie.title}
+                  {movie.title} ({movie.year})
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Dir. <span className="text-slate-300">{movie.director}</span>
@@ -261,7 +286,7 @@ export const MovieDirectoryPage: React.FC = () => {
                   <span className="text-slate-200 font-bold">${movie.productionBudget}M</span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] text-slate-500 block">Projected</span>
+                  <span className="text-[10px] text-slate-500 block">Box Office Gross</span>
                   <span className="text-emerald-400 font-bold">${movie.projectedBoxOffice}M</span>
                 </div>
               </div>
@@ -276,7 +301,7 @@ export const MovieDirectoryPage: React.FC = () => {
           <div className="bg-[#10141e] border border-white/10 rounded-2xl w-full max-w-md p-6 space-y-4 shadow-2xl">
             <h3 className="text-lg font-bold text-white flex items-center gap-2">
               <Plus className="w-5 h-5 text-amber-400" />
-              Register New Theatrical Lot
+              Register New Theatrical Lot in D1
             </h3>
 
             <form onSubmit={handleAddCustomMovie} className="space-y-3">
@@ -285,7 +310,7 @@ export const MovieDirectoryPage: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Chrono Nexus"
+                  placeholder="e.g. Pulp Fiction 2"
                   value={newTitle}
                   onChange={(e) => setNewTitle(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-[#141824] border border-white/10 text-white text-xs"
@@ -297,11 +322,43 @@ export const MovieDirectoryPage: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. David Fincher"
+                  placeholder="e.g. Quentin Tarantino"
                   value={newDirector}
                   onChange={(e) => setNewDirector(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-[#141824] border border-white/10 text-white text-xs"
                 />
+              </div>
+
+              {/* Custom Poster Image Upload */}
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1">
+                  Custom Poster Image (Upload or URL)
+                </label>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    Upload Poster
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleCustomPosterUpload}
+                    className="hidden"
+                  />
+                  <input
+                    type="url"
+                    placeholder="Or paste image URL"
+                    value={customPosterUrl}
+                    onChange={(e) => setCustomPosterUrl(e.target.value)}
+                    className="flex-1 px-3 py-1.5 rounded-xl bg-[#141824] border border-white/10 text-white text-xs"
+                  />
+                </div>
+                {uploadPosterMsg && <p className="text-[10px] text-emerald-400 mt-1">{uploadPosterMsg}</p>}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -312,35 +369,51 @@ export const MovieDirectoryPage: React.FC = () => {
                     onChange={(e) => setNewGenre(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl bg-[#141824] border border-white/10 text-white text-xs"
                   >
+                    <option value="Drama">Drama</option>
+                    <option value="Crime">Crime</option>
                     <option value="Sci-Fi">Sci-Fi</option>
                     <option value="Action">Action</option>
-                    <option value="Drama">Drama</option>
-                    <option value="Horror">Horror</option>
+                    <option value="Thriller">Thriller</option>
                     <option value="Comedy">Comedy</option>
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1">Budget ($M)</label>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">IMDb Rating</label>
                   <input
                     type="number"
-                    min="10"
-                    value={newBudget}
-                    onChange={(e) => setNewBudget(parseInt(e.target.value) || 10)}
+                    step="0.1"
+                    min="1"
+                    max="10"
+                    value={newImdbRating}
+                    onChange={(e) => setNewImdbRating(parseFloat(e.target.value) || 8.5)}
                     className="w-full px-3 py-2 rounded-xl bg-[#141824] border border-white/10 text-white text-xs font-mono"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1">Projected Box Office ($M)</label>
-                <input
-                  type="number"
-                  min="20"
-                  value={newBoxOffice}
-                  onChange={(e) => setNewBoxOffice(parseInt(e.target.value) || 20)}
-                  className="w-full px-3 py-2 rounded-xl bg-[#141824] border border-white/10 text-white text-xs font-mono"
-                />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">Budget ($M)</label>
+                  <input
+                    type="number"
+                    min="5"
+                    value={newBudget}
+                    onChange={(e) => setNewBudget(parseInt(e.target.value) || 10)}
+                    className="w-full px-3 py-2 rounded-xl bg-[#141824] border border-white/10 text-white text-xs font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1">Box Office ($M)</label>
+                  <input
+                    type="number"
+                    min="10"
+                    value={newBoxOffice}
+                    onChange={(e) => setNewBoxOffice(parseInt(e.target.value) || 20)}
+                    className="w-full px-3 py-2 rounded-xl bg-[#141824] border border-white/10 text-white text-xs font-mono"
+                  />
+                </div>
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-3">
@@ -365,4 +438,3 @@ export const MovieDirectoryPage: React.FC = () => {
     </div>
   );
 };
-

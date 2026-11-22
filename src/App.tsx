@@ -4,23 +4,44 @@ import { Navbar } from './components/Navbar';
 import { ClusterStatusModal } from './components/ClusterStatusModal';
 import { GroqConfigModal } from './components/GroqConfigModal';
 import { MultiplayerModal } from './components/MultiplayerModal';
+import { GameRulesModal } from './components/GameRulesModal';
+import { AuthModal } from './components/AuthModal';
 import { AuctionRoomPage } from './pages/AuctionRoomPage';
 import { MovieDirectoryPage } from './pages/MovieDirectoryPage';
 import { PostAuctionPage } from './pages/PostAuctionPage';
 import { groqEvaluator } from './services/ai/groqEvaluator';
+import { authService } from './services/auth/authService';
 import { StudioPlayer } from './types/auction';
+import { UserAccount } from './types/auth';
 import { multiplayerService } from './services/biddingEngine/multiplayerService';
 
-const DEFAULT_USER_STUDIO: StudioPlayer = {
-  id: `studio-${Math.random().toString(36).substring(2, 7)}`,
-  name: 'Apex Motion Pictures',
-  logo: '👑',
-  color: '#d97706',
-  isHuman: true,
-  budget: 150,
-  initialBudget: 150,
-  acquiredMovies: [],
-  isReady: true,
+const buildStudioFromUser = (user: UserAccount | null): StudioPlayer => {
+  if (user) {
+    return {
+      id: user.id,
+      name: user.studioName || `${user.name} Pictures`,
+      logo: user.avatarEmoji || '👑',
+      customAvatarUrl: user.avatarUrl || undefined,
+      color: user.brandColor || '#d97706',
+      isHuman: true,
+      budget: 150,
+      initialBudget: 150,
+      acquiredMovies: [],
+      isReady: true,
+    };
+  }
+
+  return {
+    id: 'studio-user',
+    name: 'Apex Motion Pictures',
+    logo: '👑',
+    color: '#d97706',
+    isHuman: true,
+    budget: 150,
+    initialBudget: 150,
+    acquiredMovies: [],
+    isReady: true,
+  };
 };
 
 const AppContent: React.FC = () => {
@@ -28,21 +49,27 @@ const AppContent: React.FC = () => {
   const [isClusterModalOpen, setIsClusterModalOpen] = useState(false);
   const [isGroqModalOpen, setIsGroqModalOpen] = useState(false);
   const [isMultiplayerModalOpen, setIsMultiplayerModalOpen] = useState(false);
+  const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [initialRoomCode, setInitialRoomCode] = useState('');
 
-  const [currentUserStudio, setCurrentUserStudio] = useState<StudioPlayer>(() => {
-    try {
-      const saved = localStorage.getItem('cinema_user_studio_profile');
-      return saved ? JSON.parse(saved) : DEFAULT_USER_STUDIO;
-    } catch {
-      return DEFAULT_USER_STUDIO;
-    }
-  });
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => authService.getCurrentUser());
+  const [currentUserStudio, setCurrentUserStudio] = useState<StudioPlayer>(() => buildStudioFromUser(currentUser));
 
   const [isGroqConfigured, setIsGroqConfigured] = useState(() => {
     const config = groqEvaluator.getConfig();
     return Boolean(config.apiKey && config.apiKey.trim().length > 5);
   });
+
+  useEffect(() => {
+    const unsub = authService.subscribe((user) => {
+      setCurrentUser(user);
+      const studio = buildStudioFromUser(user);
+      setCurrentUserStudio(studio);
+      multiplayerService.setLocalStudio(studio);
+    });
+    return unsub;
+  }, []);
 
   useEffect(() => {
     multiplayerService.setLocalStudio(currentUserStudio);
@@ -56,11 +83,19 @@ const AppContent: React.FC = () => {
   const handleUpdateStudio = (updated: StudioPlayer) => {
     setCurrentUserStudio(updated);
     multiplayerService.setLocalStudio(updated);
-    try {
-      localStorage.setItem('cinema_user_studio_profile', JSON.stringify(updated));
-    } catch {
-      // ignore
-    }
+    authService.updateProfile({
+      studioName: updated.name,
+      avatarEmoji: updated.logo,
+      avatarUrl: updated.customAvatarUrl || '',
+      brandColor: updated.color,
+    });
+  };
+
+  const handleUserChange = (user: UserAccount | null) => {
+    setCurrentUser(user);
+    const studio = buildStudioFromUser(user);
+    setCurrentUserStudio(studio);
+    multiplayerService.setLocalStudio(studio);
   };
 
   const handleGroqSaved = () => {
@@ -74,6 +109,8 @@ const AppContent: React.FC = () => {
         onOpenClusterModal={() => setIsClusterModalOpen(true)}
         onOpenGroqModal={() => setIsGroqModalOpen(true)}
         onOpenMultiplayerModal={() => setIsMultiplayerModalOpen(true)}
+        onOpenRulesModal={() => setIsRulesModalOpen(true)}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
         isGroqConfigured={isGroqConfigured}
       />
 
@@ -84,6 +121,7 @@ const AppContent: React.FC = () => {
             element={
               <AuctionRoomPage
                 onOpenMultiplayerModal={() => setIsMultiplayerModalOpen(true)}
+                onOpenRulesModal={() => setIsRulesModalOpen(true)}
                 currentUserStudio={currentUserStudio}
               />
             }
@@ -96,7 +134,7 @@ const AppContent: React.FC = () => {
       <footer className="border-t border-white/5 py-6 px-4 text-center text-xs text-slate-500 bg-[#07090d]">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 font-mono text-[11px]">
           <span>CINEMA DRAFT • REACT 19 + VITE 6 + REACT ROUTER 7</span>
-          <span>WEBRTC P2P ONLINE MULTIPLAYER • 7-SERVER RTDB CLUSTER • CLOUDFLARE D1 • GROQ QWEN AI</span>
+          <span>IMDb TOP 250 LEGENDS • WEBRTC P2P MULTIPLAYER • CLOUDFLARE D1 • GROQ QWEN AI</span>
         </div>
       </footer>
 
@@ -120,6 +158,20 @@ const AppContent: React.FC = () => {
         currentStudio={currentUserStudio}
         onUpdateStudio={handleUpdateStudio}
         initialRoomCode={initialRoomCode}
+      />
+
+      {/* Official Game Rules Modal */}
+      <GameRulesModal
+        isOpen={isRulesModalOpen}
+        onClose={() => setIsRulesModalOpen(false)}
+      />
+
+      {/* Executive Auth / Profile Modal */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        currentUser={currentUser}
+        onUserChange={handleUserChange}
       />
     </div>
   );

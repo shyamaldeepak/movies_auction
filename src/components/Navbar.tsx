@@ -1,15 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Clapperboard, Server, Cpu, Volume2, VolumeX, Film, Trophy, Radio, Users, Sparkles } from 'lucide-react';
+import { Clapperboard, Server, Cpu, Volume2, VolumeX, Film, Trophy, Radio, Users, BookOpen, User } from 'lucide-react';
 import { soundEffects } from '../utils/audioEffects';
 import { clusterManager } from '../services/biddingEngine/clusterManager';
 import { multiplayerService } from '../services/biddingEngine/multiplayerService';
+import { authService } from '../services/auth/authService';
 import { ClusterNode } from '../types/auction';
+import { UserAccount } from '../types/auth';
 
 interface NavbarProps {
   onOpenClusterModal: () => void;
   onOpenGroqModal: () => void;
   onOpenMultiplayerModal: () => void;
+  onOpenRulesModal: () => void;
+  onOpenAuthModal: () => void;
   isGroqConfigured: boolean;
 }
 
@@ -17,6 +21,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenClusterModal,
   onOpenGroqModal,
   onOpenMultiplayerModal,
+  onOpenRulesModal,
+  onOpenAuthModal,
   isGroqConfigured,
 }) => {
   const location = useLocation();
@@ -25,6 +31,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [multiplayerRole, setMultiplayerRole] = useState(multiplayerService.getRole());
   const [roomCode, setRoomCode] = useState(multiplayerService.getRoomCode());
   const [connectedCount, setConnectedCount] = useState(0);
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(() => authService.getCurrentUser());
 
   useEffect(() => {
     const unsubCluster = clusterManager.subscribe((nodes) => {
@@ -38,9 +45,14 @@ export const Navbar: React.FC<NavbarProps> = ({
       setRoomCode(multiplayerService.getRoomCode());
     });
 
+    const unsubAuth = authService.subscribe((user) => {
+      setCurrentUser(user);
+    });
+
     return () => {
       unsubCluster();
       unsubPeers();
+      unsubAuth();
     };
   }, []);
 
@@ -48,9 +60,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     const next = !audioEnabled;
     setAudioEnabled(next);
     soundEffects.setEnabled(next);
-    if (next) {
-      soundEffects.playBidChime();
-    }
+    if (next) soundEffects.playBidChime();
   };
 
   const isOnlineActive = multiplayerRole !== 'solo' || Boolean(roomCode);
@@ -68,8 +78,8 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span className="font-serif font-black tracking-wider text-lg bg-gradient-to-r from-amber-200 via-amber-400 to-amber-100 bg-clip-text text-transparent">
                 CINEMA DRAFT
               </span>
-              <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded">
-                Live RTDB
+              <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-widest bg-yellow-500/15 text-yellow-300 border border-yellow-500/30 rounded font-mono">
+                IMDb Top 250
               </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
@@ -100,7 +110,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             }`}
           >
             <Film className="w-4 h-4 text-sky-400" />
-            D1 Movie Catalog
+            IMDb / D1 Catalog
           </Link>
           <Link
             to="/slate"
@@ -116,7 +126,17 @@ export const Navbar: React.FC<NavbarProps> = ({
         </nav>
 
         {/* Right Action Tools */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-2.5">
+          {/* Rules Button */}
+          <button
+            onClick={onOpenRulesModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141824] hover:bg-[#1a2130] border border-white/10 text-xs font-semibold text-slate-300 hover:text-amber-400 transition-colors cursor-pointer"
+            title="Read Rules of the Game"
+          >
+            <BookOpen className="w-3.5 h-3.5 text-amber-400" />
+            <span className="hidden sm:inline">Rules</span>
+          </button>
+
           {/* Online Multiplayer Button */}
           <button
             onClick={onOpenMultiplayerModal}
@@ -135,50 +155,63 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
           </button>
 
+          {/* User Profile Pill / Login */}
+          <button
+            onClick={onOpenAuthModal}
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#141824] hover:bg-[#1a2130] border border-white/10 text-xs font-medium text-slate-200 transition-all cursor-pointer"
+            title="User Profile & Studio Identity"
+          >
+            <div
+              className="w-5 h-5 rounded-md overflow-hidden flex items-center justify-center shrink-0 border border-white/20 text-xs"
+              style={{ backgroundColor: currentUser?.brandColor || '#d97706' }}
+            >
+              {currentUser?.avatarUrl ? (
+                <img src={currentUser.avatarUrl} alt="User" className="w-full h-full object-cover" />
+              ) : (
+                <span>{currentUser?.avatarEmoji || '👑'}</span>
+              )}
+            </div>
+            <span className="hidden lg:inline text-xs font-semibold max-w-[100px] truncate">
+              {currentUser?.name || 'Login'}
+            </span>
+          </button>
+
           {/* Cluster Status Telemetry Pill */}
           <button
             onClick={onOpenClusterModal}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#141824] hover:bg-[#1a2130] border border-emerald-500/20 hover:border-emerald-500/40 text-xs text-slate-300 transition-all cursor-pointer group"
-            title="Click to view 7-Server Cluster & Web Locks Telemetry"
+            className="hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-[#141824] hover:bg-[#1a2130] border border-emerald-500/20 hover:border-emerald-500/40 text-xs text-slate-300 transition-all cursor-pointer"
+            title="7-Server Cluster Telemetry"
           >
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
             <Server className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="hidden sm:inline font-mono text-[11px] text-emerald-300 font-medium">
-              {leaderNode ? `${leaderNode.flag} ${leaderNode.latencyMs}ms` : 'Cluster'}
+            <span className="font-mono text-[11px] text-emerald-300">
+              {leaderNode ? `${leaderNode.latencyMs}ms` : 'Cluster'}
             </span>
           </button>
 
           {/* Groq AI Config Button */}
           <button
             onClick={onOpenGroqModal}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+            className={`p-2 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
               isGroqConfigured
-                ? 'bg-purple-950/40 border-purple-500/40 text-purple-300 hover:bg-purple-900/50 shadow-sm shadow-purple-500/10'
-                : 'bg-[#141824] border-white/10 text-slate-400 hover:text-slate-200 hover:bg-[#1a2130]'
+                ? 'bg-purple-950/40 border-purple-500/40 text-purple-300'
+                : 'bg-[#141824] border-white/10 text-slate-400'
             }`}
-            title="Configure Groq Cloud API Engine (Qwen 2.5 / 3.8)"
+            title="Groq AI Engine Setup"
           >
-            <Cpu className="w-3.5 h-3.5 text-purple-400" />
-            <span className="hidden lg:inline">Groq AI</span>
-            {isGroqConfigured && (
-              <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
-            )}
+            <Cpu className="w-4 h-4 text-purple-400" />
           </button>
 
           {/* Audio FX Toggle */}
           <button
             onClick={toggleAudio}
             className="p-2 rounded-lg bg-[#141824] hover:bg-[#1a2130] border border-white/10 text-slate-400 hover:text-amber-400 transition-all cursor-pointer"
-            title={audioEnabled ? 'Mute sound effects' : 'Enable sound effects'}
+            title={audioEnabled ? 'Mute audio' : 'Enable audio'}
           >
-            {audioEnabled ? (
-              <Volume2 className="w-4 h-4 text-amber-400" />
-            ) : (
-              <VolumeX className="w-4 h-4 text-slate-500" />
-            )}
+            {audioEnabled ? <Volume2 className="w-4 h-4 text-amber-400" /> : <VolumeX className="w-4 h-4 text-slate-500" />}
           </button>
         </div>
       </div>

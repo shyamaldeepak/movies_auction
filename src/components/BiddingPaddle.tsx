@@ -45,7 +45,6 @@ export const BiddingPaddle: React.FC<BiddingPaddleProps> = ({
     setIsSubmitting(true);
 
     try {
-      // Execute atomically using Web Locks API to prevent race conditions
       await webLockService.executeWithLock('auction-bid-lock', async () => {
         soundEffects.playGavelStrike();
         const success = await onPlaceBid(amount);
@@ -75,10 +74,14 @@ export const BiddingPaddle: React.FC<BiddingPaddleProps> = ({
       <div className="flex items-center justify-between pb-3 border-b border-white/5">
         <div className="flex items-center gap-3">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-white shadow-md text-base"
+            className="w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center font-bold text-white shadow-md text-base"
             style={{ backgroundColor: currentStudio.color }}
           >
-            {currentStudio.logo}
+            {currentStudio.customAvatarUrl ? (
+              <img src={currentStudio.customAvatarUrl} alt={currentStudio.name} className="w-full h-full object-cover" />
+            ) : (
+              <span>{currentStudio.logo}</span>
+            )}
           </div>
           <div>
             <div className="flex items-center gap-2">
@@ -202,4 +205,3 @@ export const BiddingPaddle: React.FC<BiddingPaddleProps> = ({
     </div>
   );
 };
-

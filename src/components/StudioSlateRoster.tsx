@@ -36,7 +36,16 @@ export const StudioSlateRoster: React.FC<StudioSlateRosterProps> = ({ studios, a
             >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-2.5">
-                  <span className="text-xl">{studio.logo}</span>
+                  <div
+                    className="w-8 h-8 rounded-xl overflow-hidden flex items-center justify-center shrink-0 border border-white/10 text-base shadow-sm"
+                    style={{ backgroundColor: studio.color }}
+                  >
+                    {studio.customAvatarUrl ? (
+                      <img src={studio.customAvatarUrl} alt={studio.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span>{studio.logo}</span>
+                    )}
+                  </div>
                   <div>
                     <div className="flex items-center gap-1.5">
                       <span className="text-xs font-bold text-white">{studio.name}</span>
@@ -95,4 +104,3 @@ export const StudioSlateRoster: React.FC<StudioSlateRosterProps> = ({ studios, a
     </div>
   );
 };
-

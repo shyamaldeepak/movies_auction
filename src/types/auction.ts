@@ -5,7 +5,8 @@ export type AuctionPhase = 'lobby' | 'countdown' | 'bidding' | 'anti_snipe' | 's
 export interface StudioPlayer {
   id: string;
   name: string;
-  logo: string;
+  logo: string; // Emoji logo
+  customAvatarUrl?: string; // Optional custom uploaded image URL/Base64
   color: string;
   isHuman: boolean;
   budget: number; // remaining budget in Millions USD
@@ -29,6 +30,7 @@ export interface BidRecord {
   studioId: string;
   studioName: string;
   studioLogo: string;
+  studioCustomAvatar?: string;
   amount: number; // in Millions USD
   timestamp: number;
   clusterNodeId: string;
@@ -49,12 +51,13 @@ export interface ClusterNode {
 }
 
 export interface AuctionRoomSettings {
-  startingBudget: number; // e.g. 120 ($120M)
-  maxMoviesPerStudio: number; // e.g. 4
-  secondsPerLot: number; // e.g. 15
-  antiSnipeSeconds: number; // e.g. 6
-  minimumBidIncrement: number; // e.g. 1 ($1M)
+  startingBudget: number;
+  maxMoviesPerStudio: number;
+  secondsPerLot: number;
+  antiSnipeSeconds: number;
+  minimumBidIncrement: number;
   roomName: string;
+  catalogMode: 'imdb_top' | 'upcoming_blockbusters' | 'all';
   enableAudio: boolean;
   enableGroqAI: boolean;
 }
@@ -79,4 +82,3 @@ export interface AuctionState {
   lastUpdated: number;
   sequenceNumber: number;
 }
-
