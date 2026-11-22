@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Play, Pause, RotateCcw, Volume2, Users, Bot, Zap, Clock, ShieldCheck, Award } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Play, Pause, RotateCcw, Volume2, Users, Bot, Zap, Clock, ShieldCheck, Award, Share2 } from 'lucide-react';
 import { MovieLotCard } from '../components/MovieLotCard';
 import { BiddingPaddle } from '../components/BiddingPaddle';
 import { AuctionHammer } from '../components/AuctionHammer';
 import { LiveBidFeed } from '../components/LiveBidFeed';
 import { StudioSlateRoster } from '../components/StudioSlateRoster';
+import { ReactionOverlay } from '../components/ReactionOverlay';
 import { INITIAL_MOVIES } from '../data/mockMovies';
 import { Movie } from '../types/movie';
 import { AuctionState, StudioPlayer, BidRecord, AuctionPhase } from '../types/auction';
@@ -13,6 +14,7 @@ import { clusterManager } from '../services/biddingEngine/clusterManager';
 import { broadcastSync } from '../services/biddingEngine/broadcastSync';
 import { webLockService } from '../services/biddingEngine/webLockService';
 import { firebaseBridge } from '../services/biddingEngine/firebaseBridge';
+import { multiplayerService } from '../services/biddingEngine/multiplayerService';
 import { soundEffects } from '../utils/audioEffects';
 import { d1Storage } from '../services/storage/d1Client';
 import { shareService } from '../services/export/shareService';
@@ -64,8 +66,17 @@ const INITIAL_STUDIOS: StudioPlayer[] = [
   },
 ];
 
-export const AuctionRoomPage: React.FC = () => {
+interface AuctionRoomPageProps {
+  onOpenMultiplayerModal?: () => void;
+  currentUserStudio: StudioPlayer;
+}
+
+export const AuctionRoomPage: React.FC<AuctionRoomPageProps> = ({
+  onOpenMultiplayerModal,
+  currentUserStudio,
+}) => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
   // Load custom movies from D1 cache or fallback to initial
   const [moviesList] = useState<Movie[]>(() => {
@@ -91,7 +102,7 @@ export const AuctionRoomPage: React.FC = () => {
     hammerState: 'none',
     bidHistory: [],
     allLots: moviesList.slice(0, 8),
-    studios: INITIAL_STUDIOS,
+    studios: INITIAL_STUDIOS.map((s) => (s.id === 'studio-user' ? { ...s, ...currentUserStudio } : s)),
     clusterNodes: clusterManager.getNodes(),
     activeClusterLeader: clusterManager.getLeader().id,
     lastUpdated: Date.now(),
@@ -102,8 +113,67 @@ export const AuctionRoomPage: React.FC = () => {
   const timerRef = useRef<any>(null);
   const botIntervalRef = useRef<any>(null);
 
-  // BroadcastChannel cross-tab listener
+  // Auto prompt join if ?room= query param is found
   useEffect(() => {
+    const roomParam = searchParams.get('room');
+    if (roomParam && onOpenMultiplayerModal && multiplayerService.getRole() === 'solo') {
+      onOpenMultiplayerModal();
+    }
+  }, [searchParams, onOpenMultiplayerModal]);
+
+  // Sync peer roster when friends join
+  useEffect(() => {
+    const unsubPeers = multiplayerService.onPeersChange((peers) => {
+      if (peers.length > 0) {
+        setAuctionState((prev) => {
+          // Merge connected human peers with existing roster
+          const existingIds = new Set(peers.map((p) => p.id));
+          const bots = prev.studios.filter((s) => !s.isHuman && !existingIds.has(s.id));
+          return {
+            ...prev,
+            studios: [...peers, ...bots],
+          };
+        });
+      }
+    });
+    return unsubPeers;
+  }, []);
+
+  // Multiplayer PeerJS & BroadcastChannel message listeners
+  useEffect(() => {
+    const unsubMultiplayer = multiplayerService.onMessage((msg, senderId) => {
+      if (msg.type === 'BID_SUBMIT') {
+        // Host receives bid from connected friend
+        if (multiplayerService.getRole() === 'host') {
+          placeBidInternal(msg.studioId, msg.amount);
+        }
+      } else if (msg.type === 'BID_BROADCAST') {
+        // Client receives verified bid from host
+        soundEffects.playGavelStrike();
+        soundEffects.playBidChime();
+        setAuctionState((prev) => ({
+          ...prev,
+          currentBid: msg.currentBid,
+          highestBidder: msg.highestBidder,
+          bidHistory: [msg.bidRecord, ...prev.bidHistory],
+          timerSeconds: msg.timerReset ? Math.max(prev.timerSeconds, 8) : prev.timerSeconds,
+          hammerState: 'none',
+        }));
+      } else if (msg.type === 'LOT_ADVANCE') {
+        // Client advances lot in sync with host
+        setAuctionState((prev) => ({
+          ...prev,
+          currentLotIndex: msg.lotIndex,
+          currentMovie: msg.movie,
+          currentBid: msg.movie.startingBid,
+          highestBidder: null,
+          timerSeconds: 15,
+          hammerState: 'none',
+          bidHistory: [],
+        }));
+      }
+    });
+
     const unsubBroadcast = broadcastSync.subscribe((msg) => {
       if (msg.roomId === auctionState.roomId) {
         if (msg.type === 'BID_PLACED') {
@@ -112,7 +182,7 @@ export const AuctionRoomPage: React.FC = () => {
             currentBid: msg.payload.amount,
             highestBidder: msg.payload.bidder,
             bidHistory: [msg.payload.bidRecord, ...prev.bidHistory],
-            timerSeconds: Math.max(prev.timerSeconds, 6), // Anti-snipe sync
+            timerSeconds: Math.max(prev.timerSeconds, 6),
           }));
         } else if (msg.type === 'LOT_CHANGED') {
           setAuctionState((prev) => ({
@@ -129,27 +199,27 @@ export const AuctionRoomPage: React.FC = () => {
       }
     });
 
-    return () => unsubBroadcast();
+    return () => {
+      unsubMultiplayer();
+      unsubBroadcast();
+    };
   }, [auctionState.roomId]);
 
-  // Main countdown timer loop
+  // Main countdown timer loop (Runs on Host or in Solo mode)
   useEffect(() => {
+    const isHostOrSolo = multiplayerService.getRole() === 'host' || multiplayerService.getRole() === 'solo';
+    if (!isHostOrSolo) return;
+
     if (auctionState.phase === 'bidding' || auctionState.phase === 'anti_snipe') {
       timerRef.current = setInterval(() => {
         setAuctionState((prev) => {
           if (prev.timerSeconds <= 1) {
-            // Timer expired: trigger hammer or finalize lot
             return handleTimerExpired(prev);
           }
 
           const nextSec = prev.timerSeconds - 1;
+          if (nextSec <= 3) soundEffects.playWarningTick();
 
-          // Sound effects for warning ticks
-          if (nextSec <= 3) {
-            soundEffects.playWarningTick();
-          }
-
-          // Dynamic hammer state progression
           let newHammer = prev.hammerState;
           if (nextSec <= 4 && nextSec > 2) newHammer = 'once';
           else if (nextSec <= 2 && nextSec > 0) newHammer = 'twice';
@@ -168,17 +238,18 @@ export const AuctionRoomPage: React.FC = () => {
     };
   }, [auctionState.phase]);
 
-  // Bot bidding logic: AI studios place intelligent competing bids
+  // Bot bidding logic (Only host/solo drives bots)
   useEffect(() => {
+    const isHostOrSolo = multiplayerService.getRole() === 'host' || multiplayerService.getRole() === 'solo';
+    if (!isHostOrSolo) return;
+
     if (!aiBotsActive || (auctionState.phase !== 'bidding' && auctionState.phase !== 'anti_snipe')) {
       return;
     }
 
     botIntervalRef.current = setInterval(() => {
-      // 30% chance each interval for an AI bot to assess and place a bid
       if (Math.random() > 0.45) return;
 
-      const userStudioId = 'studio-user';
       const botStudios = auctionState.studios.filter(
         (s) => !s.isHuman && s.id !== auctionState.highestBidder?.id
       );
@@ -189,7 +260,6 @@ export const AuctionRoomPage: React.FC = () => {
       const movie = auctionState.currentMovie;
       if (!movie) return;
 
-      // Smart decision: Bot won't bid if movie exceeds their valuation
       const maxValuation = Math.round(movie.projectedBoxOffice * 0.12);
       const nextBidAmount = auctionState.currentBid + Math.floor(Math.random() * 3 + 1);
 
@@ -205,7 +275,6 @@ export const AuctionRoomPage: React.FC = () => {
 
   const handleTimerExpired = (state: AuctionState): AuctionState => {
     if (state.highestBidder && state.currentMovie) {
-      // Award movie to highest bidder
       soundEffects.playSoldFanfare();
       soundEffects.playGavelStrike();
 
@@ -232,13 +301,11 @@ export const AuctionRoomPage: React.FC = () => {
         return s;
       });
 
-      // Save user slate in session storage for AI evaluation
-      const userStudio = updatedStudios.find((s) => s.isHuman);
+      const userStudio = updatedStudios.find((s) => s.id === currentUserStudio.id || s.isHuman);
       if (userStudio) {
         d1Storage.saveSessionSlate(userStudio);
       }
 
-      // Check if this was the last lot
       if (state.currentLotIndex + 1 >= state.totalLots) {
         setTimeout(() => {
           shareService.fireVictoryConfetti();
@@ -254,7 +321,6 @@ export const AuctionRoomPage: React.FC = () => {
         };
       }
 
-      // Advance to next lot after 3s celebration pause
       setTimeout(() => {
         advanceToNextLot(state.currentLotIndex + 1, updatedStudios);
       }, 3500);
@@ -267,7 +333,6 @@ export const AuctionRoomPage: React.FC = () => {
         timerSeconds: 0,
       };
     } else {
-      // Unsold lot: pass to next
       if (state.currentLotIndex + 1 >= state.totalLots) {
         navigate('/slate');
         return { ...state, phase: 'completed', timerSeconds: 0 };
@@ -305,19 +370,24 @@ export const AuctionRoomPage: React.FC = () => {
 
     setAuctionState((prev) => ({ ...prev, ...nextState }));
 
+    // Broadcast to connected peers via WebRTC
+    multiplayerService.broadcast({
+      type: 'LOT_ADVANCE',
+      lotIndex: nextIndex,
+      movie: nextMovie,
+    });
+
     broadcastSync.broadcast('LOT_CHANGED', auctionState.roomId, {
       lotIndex: nextIndex,
       movie: nextMovie,
     });
   };
 
-  // Atomic bid placement with 7-Server Cluster & Web Lock
   const placeBidInternal = async (studioId: string, amount: number): Promise<boolean> => {
     return await webLockService.executeWithLock('auction-bid-lock', async () => {
       const studio = auctionState.studios.find((s) => s.id === studioId);
       if (!studio || studio.budget < amount) return false;
 
-      // Ingress through 7-Server Cluster Engine
       const bidRecord = clusterManager.processIngressBid({
         lotId: auctionState.currentMovie?.id || 'lot-1',
         studioId: studio.id,
@@ -327,9 +397,9 @@ export const AuctionRoomPage: React.FC = () => {
         timestamp: Date.now(),
       });
 
-      // Anti-sniping: if under 6 seconds, reset timer to 8 seconds
-      const nextTimer = auctionState.timerSeconds < 6 ? 8 : auctionState.timerSeconds;
-      const nextPhase: AuctionPhase = auctionState.timerSeconds < 6 ? 'anti_snipe' : 'bidding';
+      const timerReset = auctionState.timerSeconds < 6;
+      const nextTimer = timerReset ? 8 : auctionState.timerSeconds;
+      const nextPhase: AuctionPhase = timerReset ? 'anti_snipe' : 'bidding';
 
       setAuctionState((prev) => {
         const updated = {
@@ -343,12 +413,19 @@ export const AuctionRoomPage: React.FC = () => {
           lastUpdated: Date.now(),
         };
 
-        // Push to Firebase RTDB if configured
         firebaseBridge.pushState(prev.roomId, updated);
         return updated;
       });
 
-      // Broadcast to other browser tabs
+      // Broadcast to connected friends via WebRTC P2P
+      multiplayerService.broadcast({
+        type: 'BID_BROADCAST',
+        bidRecord,
+        currentBid: amount,
+        highestBidder: studio,
+        timerReset,
+      });
+
       broadcastSync.broadcast('BID_PLACED', auctionState.roomId, {
         amount,
         bidder: studio,
@@ -360,10 +437,23 @@ export const AuctionRoomPage: React.FC = () => {
   };
 
   const handleUserBid = async (amount: number) => {
-    return await placeBidInternal('studio-user', amount);
+    if (multiplayerService.getRole() === 'client') {
+      // Client sends bid submit request to host
+      multiplayerService.sendToHost({
+        type: 'BID_SUBMIT',
+        studioId: currentUserStudio.id,
+        amount,
+      });
+      return true;
+    } else {
+      return await placeBidInternal(currentUserStudio.id, amount);
+    }
   };
 
-  const userStudio = auctionState.studios.find((s) => s.id === 'studio-user') || auctionState.studios[0];
+  const activeStudioInState =
+    auctionState.studios.find((s) => s.id === currentUserStudio.id) ||
+    auctionState.studios.find((s) => s.isHuman) ||
+    currentUserStudio;
 
   return (
     <div className="max-w-7xl mx-auto px-4 lg:px-8 py-6 space-y-6">
@@ -384,13 +474,24 @@ export const AuctionRoomPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Live Timer Clock Display */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 px-4 py-2 rounded-xl bg-black/40 border border-white/10">
+        {/* Live Timer, Multiplayer Invite & Bot Toggles */}
+        <div className="flex items-center gap-3">
+          {/* Quick Invite Button */}
+          {onOpenMultiplayerModal && (
+            <button
+              onClick={onOpenMultiplayerModal}
+              className="px-3 py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Invite Friends</span>
+            </button>
+          )}
+
+          {/* Live Timer Clock Display */}
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-black/40 border border-white/10">
             <Clock className={`w-4 h-4 ${auctionState.timerSeconds <= 5 ? 'text-rose-400 animate-spin' : 'text-amber-400'}`} />
-            <span className="text-xs uppercase font-bold text-slate-400">Time:</span>
             <span
-              className={`font-mono text-xl font-black ${
+              className={`font-mono text-lg font-black ${
                 auctionState.timerSeconds <= 5 ? 'text-rose-400 animate-pulse' : 'text-white'
               }`}
             >
@@ -401,7 +502,7 @@ export const AuctionRoomPage: React.FC = () => {
           {/* AI Bot Toggle */}
           <button
             onClick={() => setAiBotsActive(!aiBotsActive)}
-            className={`px-3 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
+            className={`px-3 py-1.5 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
               aiBotsActive
                 ? 'bg-purple-950/40 border-purple-500/30 text-purple-300'
                 : 'bg-white/5 border-white/10 text-slate-500'
@@ -409,7 +510,7 @@ export const AuctionRoomPage: React.FC = () => {
             title="Toggle autonomous Hollywood bot studios"
           >
             <Bot className="w-4 h-4" />
-            <span className="hidden sm:inline">AI Bots:</span>
+            <span className="hidden sm:inline">Bots:</span>
             <span>{aiBotsActive ? 'ON' : 'OFF'}</span>
           </button>
         </div>
@@ -443,10 +544,13 @@ export const AuctionRoomPage: React.FC = () => {
           <BiddingPaddle
             currentBid={auctionState.currentBid}
             highestBidder={auctionState.highestBidder}
-            currentStudio={userStudio}
+            currentStudio={activeStudioInState}
             phase={auctionState.phase}
             onPlaceBid={handleUserBid}
           />
+
+          {/* Floating Reaction Emojis Toolbar */}
+          <ReactionOverlay senderName={activeStudioInState.name} />
         </div>
 
         {/* Right Column: Live Wire Ticker & Studio Dugout */}
@@ -457,11 +561,10 @@ export const AuctionRoomPage: React.FC = () => {
           {/* Studio Dugout / Leaderboard */}
           <StudioSlateRoster
             studios={auctionState.studios}
-            activeStudioId={userStudio.id}
+            activeStudioId={activeStudioInState.id}
           />
         </div>
       </div>
     </div>
   );
 };
-

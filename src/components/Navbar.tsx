@@ -1,31 +1,47 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Clapperboard, Server, Cpu, Volume2, VolumeX, Sparkles, Film, Trophy, Radio } from 'lucide-react';
+import { Clapperboard, Server, Cpu, Volume2, VolumeX, Film, Trophy, Radio, Users, Sparkles } from 'lucide-react';
 import { soundEffects } from '../utils/audioEffects';
 import { clusterManager } from '../services/biddingEngine/clusterManager';
+import { multiplayerService } from '../services/biddingEngine/multiplayerService';
 import { ClusterNode } from '../types/auction';
 
 interface NavbarProps {
   onOpenClusterModal: () => void;
   onOpenGroqModal: () => void;
+  onOpenMultiplayerModal: () => void;
   isGroqConfigured: boolean;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
   onOpenClusterModal,
   onOpenGroqModal,
+  onOpenMultiplayerModal,
   isGroqConfigured,
 }) => {
   const location = useLocation();
   const [audioEnabled, setAudioEnabled] = useState(soundEffects.isEnabled());
   const [leaderNode, setLeaderNode] = useState<ClusterNode | null>(null);
+  const [multiplayerRole, setMultiplayerRole] = useState(multiplayerService.getRole());
+  const [roomCode, setRoomCode] = useState(multiplayerService.getRoomCode());
+  const [connectedCount, setConnectedCount] = useState(0);
 
   useEffect(() => {
-    const unsub = clusterManager.subscribe((nodes) => {
+    const unsubCluster = clusterManager.subscribe((nodes) => {
       const leader = nodes.find(n => n.isLeader) || nodes[0];
       setLeaderNode(leader);
     });
-    return unsub;
+
+    const unsubPeers = multiplayerService.onPeersChange((peers) => {
+      setConnectedCount(peers.length);
+      setMultiplayerRole(multiplayerService.getRole());
+      setRoomCode(multiplayerService.getRoomCode());
+    });
+
+    return () => {
+      unsubCluster();
+      unsubPeers();
+    };
   }, []);
 
   const toggleAudio = () => {
@@ -36,6 +52,8 @@ export const Navbar: React.FC<NavbarProps> = ({
       soundEffects.playBidChime();
     }
   };
+
+  const isOnlineActive = multiplayerRole !== 'solo' || Boolean(roomCode);
 
   return (
     <header className="sticky top-0 z-40 bg-[#090b10]/90 backdrop-blur-md border-b border-white/10 px-4 lg:px-8 py-3 transition-colors">
@@ -97,8 +115,26 @@ export const Navbar: React.FC<NavbarProps> = ({
           </Link>
         </nav>
 
-        {/* Right Action Tools: 7-Server Cluster Pill, Groq AI Pill, Audio */}
+        {/* Right Action Tools */}
         <div className="flex items-center gap-2 sm:gap-3">
+          {/* Online Multiplayer Button */}
+          <button
+            onClick={onOpenMultiplayerModal}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+              isOnlineActive
+                ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300 shadow-sm shadow-emerald-500/20'
+                : 'bg-gradient-to-r from-amber-500/20 to-amber-400/10 hover:from-amber-500/30 hover:to-amber-400/20 border-amber-500/30 text-amber-300 shadow-sm'
+            }`}
+            title="Create or join an online multiplayer auction room with friends"
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>
+              {isOnlineActive
+                ? `Online: ${roomCode} (${connectedCount})`
+                : 'Play with Friends'}
+            </span>
+          </button>
+
           {/* Cluster Status Telemetry Pill */}
           <button
             onClick={onOpenClusterModal}
@@ -111,7 +147,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
             <Server className="w-3.5 h-3.5 text-emerald-400" />
             <span className="hidden sm:inline font-mono text-[11px] text-emerald-300 font-medium">
-              {leaderNode ? `${leaderNode.flag} ${leaderNode.latencyMs}ms (Cluster)` : '7-Node Cluster'}
+              {leaderNode ? `${leaderNode.flag} ${leaderNode.latencyMs}ms` : 'Cluster'}
             </span>
           </button>
 
@@ -149,4 +185,3 @@ export const Navbar: React.FC<NavbarProps> = ({
     </header>
   );
 };
-
